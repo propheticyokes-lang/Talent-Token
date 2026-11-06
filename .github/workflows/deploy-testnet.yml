@@ -1,8 +1,8 @@
 name: deploy-testnet
-# Base Sepolia only. A throwaway launch wallet is created inside this run and never leaves it.
-# 1) Start the run.  2) Open the run's summary to see the launch wallet address.
-# 3) Send ~0.01 Base Sepolia test ETH to it from a faucet.  The run waits up to 50 minutes,
-#    deploys, hands every admin role to OWNER, and the launch wallet is thrown away.
+# Base Sepolia only. A throwaway launch wallet is created inside this run and never leaves the runner.
+# 1) Start the run.  2) Open the run page: the launch wallet address shows in the summary.
+# 3) Send ~0.01 Base Sepolia test ETH to it from a faucet. The run waits up to 50 minutes,
+#    deploys, hands every admin role to OWNER, and the launch wallet is discarded.
 on:
   workflow_dispatch:
     inputs:
@@ -14,39 +14,49 @@ jobs:
   deploy:
     runs-on: ubuntu-latest
     timeout-minutes: 60
+    env:
+      RPC: https://sepolia.base.org
     steps:
       - uses: actions/checkout@v5
       - uses: foundry-rs/foundry-toolchain@v1
       - run: forge install foundry-rs/forge-std OpenZeppelin/openzeppelin-contracts@v5.1.0 --no-git
       - run: forge test
-      - name: Create launch wallet, wait for test ETH, deploy
-        env:
-          OWNER: ${{ inputs.owner }}
-          RPC: https://sepolia.base.org
+      - name: Create launch wallet
         run: |
           set -euo pipefail
-          OUT=$(cast wallet new --json)
-          ADDR=$(echo "$OUT" | jq -r 'if type=="array" then .[0] else . end | .address')
-          export DEPLOYER_PRIVATE_KEY=$(echo "$OUT" | jq -r 'if type=="array" then .[0] else . end | .private_key')
-          echo "::add-mask::$DEPLOYER_PRIVATE_KEY"
+          umask 077
+          KEY=0x$(openssl rand -hex 32)
+          echo "::add-mask::$KEY"
+          printf '%s' "$KEY" > "$RUNNER_TEMP/launch.key"
+          ADDR=$(cast wallet address --private-key "$KEY")
+          echo "$ADDR" > "$RUNNER_TEMP/launch.addr"
+          echo "::notice title=Launch wallet::Send ~0.01 Base Sepolia test ETH to $ADDR"
           {
             echo "## Send Base Sepolia test ETH to this launch wallet"
             echo ""
             echo "\`$ADDR\`"
             echo ""
-            echo "About 0.01 ETH is enough. This run waits up to 50 minutes."
+            echo "About 0.01 ETH is enough. The next step waits up to 50 minutes."
           } >> "$GITHUB_STEP_SUMMARY"
-          echo "LAUNCH WALLET: $ADDR"
+      - name: Wait for test ETH
+        run: |
+          ADDR=$(cat "$RUNNER_TEMP/launch.addr")
           for i in $(seq 1 100); do
             BAL=$(cast balance "$ADDR" --rpc-url "$RPC")
             echo "balance: $BAL wei"
-            if [ "$BAL" -ge 3000000000000000 ]; then break; fi
+            if [ "$BAL" -ge 3000000000000000 ]; then exit 0; fi
             sleep 30
           done
-          [ "$BAL" -ge 3000000000000000 ] || { echo "No test ETH arrived in time"; exit 1; }
+          echo "No test ETH arrived in time"; exit 1
+      - name: Deploy and hand over to owner
+        env:
+          OWNER: ${{ inputs.owner }}
+        run: |
+          set -euo pipefail
+          export DEPLOYER_PRIVATE_KEY=$(cat "$RUNNER_TEMP/launch.key")
           forge script script/TestnetLaunch.s.sol --rpc-url "$RPC" --broadcast -vv | tee launch.log
+          rm -f "$RUNNER_TEMP/launch.key"
           {
-            echo ""
             echo "## Deployed to Base Sepolia"
             echo '```'
             grep -E "OWNER|ComplianceRegistry|NodeLicense|TalentRegistry|SupportVault" launch.log
