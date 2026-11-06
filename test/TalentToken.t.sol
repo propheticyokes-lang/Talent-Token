@@ -78,16 +78,18 @@ contract TalentTokenTest is Test {
     }
 
     function test_CannotMintPast5000() public {
+        uint256 toGrant = 5_000 - nodes.totalMinted();
         vm.startPrank(admin);
-        nodes.grant(treasury, 5_000 - nodes.totalMinted());
+        nodes.grant(treasury, toGrant);
         vm.expectRevert(NodeLicense.SoldOut.selector);
         nodes.grant(treasury, 1);
         vm.stopPrank();
     }
 
     function test_TierPricingAcrossBoundary() public {
+        uint256 toGrant = 995 - nodes.totalMinted(); // read first: vm.prank applies to the next call only
         vm.prank(admin);
-        nodes.grant(treasury, 995 - nodes.totalMinted()); // 995 minted
+        nodes.grant(treasury, toGrant); // 995 minted
         // 5 @ $250 + 3 @ $500
         assertEq(nodes.quote(8), 5 * 250e6 + 3 * 500e6);
     }
