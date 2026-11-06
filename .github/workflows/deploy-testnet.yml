@@ -26,8 +26,8 @@ jobs:
         run: |
           set -euo pipefail
           OUT=$(cast wallet new --json)
-          ADDR=$(echo "$OUT" | jq -r '.[0].address')
-          export DEPLOYER_PRIVATE_KEY=$(echo "$OUT" | jq -r '.[0].private_key')
+          ADDR=$(echo "$OUT" | jq -r 'if type=="array" then .[0] else . end | .address')
+          export DEPLOYER_PRIVATE_KEY=$(echo "$OUT" | jq -r 'if type=="array" then .[0] else . end | .private_key')
           echo "::add-mask::$DEPLOYER_PRIVATE_KEY"
           {
             echo "## Send Base Sepolia test ETH to this launch wallet"
