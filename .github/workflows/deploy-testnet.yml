@@ -1,0 +1,26 @@
+name: deploy-testnet
+on:
+  workflow_dispatch:
+    inputs:
+      owner:
+        description: "Owner wallet (0x...) that receives all admin roles"
+        required: true
+        default: "0x0B9Ba226E4196489DCcABf95A55Bbc65cFdc695f"
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+    environment: base-sepolia
+    steps:
+      - uses: actions/checkout@v5
+      - uses: foundry-rs/foundry-toolchain@v1
+      - run: forge install foundry-rs/forge-std OpenZeppelin/openzeppelin-contracts@v5.1.0 --no-git
+      - run: forge test
+      - name: Deploy to Base Sepolia
+        env:
+          DEPLOYER_PRIVATE_KEY: ${{ secrets.DEPLOYER_PRIVATE_KEY }}
+          OWNER: ${{ inputs.owner }}
+        run: forge script script/TestnetLaunch.s.sol --rpc-url https://sepolia.base.org --broadcast -vv
+      - uses: actions/upload-artifact@v4
+        with:
+          name: broadcast
+          path: broadcast/
