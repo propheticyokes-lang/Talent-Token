@@ -1,4 +1,8 @@
 name: deploy-testnet
+# Base Sepolia only. A throwaway launch wallet is created inside this run and never leaves it.
+# 1) Start the run.  2) Open the run's summary to see the launch wallet address.
+# 3) Send ~0.01 Base Sepolia test ETH to it from a faucet.  The run waits up to 50 minutes,
+#    deploys, hands every admin role to OWNER, and the launch wallet is thrown away.
 on:
   workflow_dispatch:
     inputs:
@@ -9,18 +13,47 @@ on:
 jobs:
   deploy:
     runs-on: ubuntu-latest
-    environment: base-sepolia
+    timeout-minutes: 60
     steps:
       - uses: actions/checkout@v5
       - uses: foundry-rs/foundry-toolchain@v1
       - run: forge install foundry-rs/forge-std OpenZeppelin/openzeppelin-contracts@v5.1.0 --no-git
       - run: forge test
-      - name: Deploy to Base Sepolia
+      - name: Create launch wallet, wait for test ETH, deploy
         env:
-          DEPLOYER_PRIVATE_KEY: ${{ secrets.DEPLOYER_PRIVATE_KEY }}
           OWNER: ${{ inputs.owner }}
-        run: forge script script/TestnetLaunch.s.sol --rpc-url https://sepolia.base.org --broadcast -vv
+          RPC: https://sepolia.base.org
+        run: |
+          set -euo pipefail
+          OUT=$(cast wallet new --json)
+          ADDR=$(echo "$OUT" | jq -r '.[0].address')
+          export DEPLOYER_PRIVATE_KEY=$(echo "$OUT" | jq -r '.[0].private_key')
+          echo "::add-mask::$DEPLOYER_PRIVATE_KEY"
+          {
+            echo "## Send Base Sepolia test ETH to this launch wallet"
+            echo ""
+            echo "\`$ADDR\`"
+            echo ""
+            echo "About 0.01 ETH is enough. This run waits up to 50 minutes."
+          } >> "$GITHUB_STEP_SUMMARY"
+          echo "LAUNCH WALLET: $ADDR"
+          for i in $(seq 1 100); do
+            BAL=$(cast balance "$ADDR" --rpc-url "$RPC")
+            echo "balance: $BAL wei"
+            if [ "$BAL" -ge 3000000000000000 ]; then break; fi
+            sleep 30
+          done
+          [ "$BAL" -ge 3000000000000000 ] || { echo "No test ETH arrived in time"; exit 1; }
+          forge script script/TestnetLaunch.s.sol --rpc-url "$RPC" --broadcast -vv | tee launch.log
+          {
+            echo ""
+            echo "## Deployed to Base Sepolia"
+            echo '```'
+            grep -E "OWNER|ComplianceRegistry|NodeLicense|TalentRegistry|SupportVault" launch.log
+            echo '```'
+          } >> "$GITHUB_STEP_SUMMARY"
       - uses: actions/upload-artifact@v4
+        if: always()
         with:
           name: broadcast
           path: broadcast/

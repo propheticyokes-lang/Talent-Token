@@ -14,7 +14,7 @@ import {SupportVault, ITalentRegistry} from "../src/SupportVault.sol";
 ///  3. hands every admin role to OWNER and renounces its own roles.
 /// After this runs the deployer key controls nothing.
 ///
-/// Env: DEPLOYER_PRIVATE_KEY, OWNER (owner's 0x wallet)
+/// Env: DEPLOYER_PRIVATE_KEY (created inside the CI run), OWNER (owner 0x wallet)
 contract TestnetLaunch is Script {
     address constant BASE_SEPOLIA_USDC = 0x036CbD53842c5426634e7929541eC2318f3dCF7e;
 
